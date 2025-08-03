@@ -29,6 +29,7 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         native-lib.cpp
         lkLoader.cpp
         Utils.cpp
+        original/linker_block_allocator.cpp
 )
 # 添加 a
 # Specifies libraries CMake should link to your target library. You

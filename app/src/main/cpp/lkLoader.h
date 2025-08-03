@@ -52,7 +52,7 @@ private:
     const ElfW(Shdr)* shdr_table_;
     const ElfW(Dyn)* dynamic_;
     const char* strtab_;  //strtab的起始地址
-    size_t strtab_size_;  //
+    size_t strtab_size_;  //statab的大小
     std::string name_;    //elf文件的路径
     void* load_start_;    //加载段起始地址
     size_t load_size_;    //加载段大小

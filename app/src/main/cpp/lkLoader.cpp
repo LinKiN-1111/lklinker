@@ -13,10 +13,11 @@
 #include <sys/prctl.h>
 #include <dlfcn.h>
 #include "original/linker_soinfo.h"
-
+#include "original/linker_block_allocator.h"
 int myneed[20];
 uint32_t needed_count = 0;
 std::unordered_map<std::string, Module> g_modules;
+struct stat sb;
 
 void lkLoader::lkload_library(const char *path) {
     int fd;
@@ -52,7 +53,6 @@ void lkLoader::lkload_library(const char *path) {
     // 4. 正式鏈接, 在這裡處理重定位的信息
     si_->link_image();
 
-    LOGE("start call constrcuctors!");
     // 5. 調用.init和.init_array
     si_->call_constructors();
 
@@ -768,7 +768,6 @@ void soinfo::call_constructors() const {
         }
     }
     LOGD("init_array_count_ = %d", init_array_count_);
-
 }
 
 
@@ -810,7 +809,12 @@ bool lkLoader::lkLoad() {
     }
 
     // 獲取當前so (加載器的so)
-    si_ = Utils::get_soinfo("liblklinker.so");
+//    si_ = Utils::get_soinfo("liblklinker.so");
+//(android_namespace_t* ns, const char* realpath,
+//               const struct stat* file_stat, off64_t file_offset,
+//               int rtld_flags
+    //自行构造一个soinfo，然后不修复linker中的soinfo，也可以执行里面的函数，但是应该就不能dlopen找到这个句柄了
+    si_ = new soinfo(nullptr, "", nullptr, 0, RTLD_NOW);
 
     if(!si_) {
         LOGE("si_ return nullptr");
@@ -824,10 +828,12 @@ bool lkLoader::lkLoad() {
     // 修正so
     si_->base = load_start();
     si_->size = load_size();
-    //        si_->set_mapped_by_caller(elf_reader.is_mapped_by_caller());
+//            si_->set_mapped_by_caller(elf_reader.is_mapped_by_caller());
     si_->load_bias = load_bias();
     si_->phnum = phdr_count();
     si_->phdr = loaded_phdr();
+
+
     return res;
 }
 bool lkLoader::ReserveAddressSpace() {
@@ -1040,3 +1046,52 @@ size_t lkLoader::phdr_table_get_load_size(const ElfW(Phdr)* phdr_table, size_t p
     //返回页对齐后的加载段的大小
     return max_vaddr - min_vaddr;
 }
+
+//=====试下不修正会怎么样
+soinfo::soinfo(android_namespace_t* ns, const char* realpath,
+               const struct stat* file_stat, off64_t file_offset,
+               int rtld_flags) {
+    memset(this, 0, sizeof(*this));
+
+    if (realpath != nullptr) {
+        realpath_ = realpath;
+    }
+
+    flags_ = FLAG_NEW_SOINFO;
+    version_ = SOINFO_VERSION;
+
+    if (file_stat != nullptr) {
+        this->st_dev_ = file_stat->st_dev;
+        this->st_ino_ = file_stat->st_ino;
+        this->file_offset_ = file_offset;
+    }
+
+    this->rtld_flags_ = rtld_flags;
+    this->primary_namespace_ = ns;
+}
+soinfo::~soinfo() {
+    memset(this, 0, sizeof(*this));
+}
+static LinkerTypeAllocator<soinfo> g_soinfo_allocator;
+static LinkerTypeAllocator<LinkedListEntry<soinfo>> g_soinfo_links_allocator;
+
+static LinkerTypeAllocator<android_namespace_t> g_namespace_allocator;
+static LinkerTypeAllocator<LinkedListEntry<android_namespace_t>> g_namespace_list_allocator;
+
+
+LinkedListEntry<soinfo>* SoinfoListAllocator::alloc() {
+    return g_soinfo_links_allocator.alloc();
+}
+
+void SoinfoListAllocator::free(LinkedListEntry<soinfo>* entry) {
+    g_soinfo_links_allocator.free(entry);
+}
+
+LinkedListEntry<android_namespace_t>* NamespaceListAllocator::alloc() {
+    return g_namespace_list_allocator.alloc();
+}
+
+void NamespaceListAllocator::free(LinkedListEntry<android_namespace_t>* entry) {
+    g_namespace_list_allocator.free(entry);
+}
+
